@@ -403,7 +403,7 @@ void
 thread_exit (void) 
 {
   ASSERT (!intr_context ());
-
+  struct thread* t = thread_current();
 #ifdef USERPROG
   process_exit ();
 #endif
@@ -412,8 +412,8 @@ thread_exit (void)
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
-  list_remove (&thread_current()->allelem);
-  thread_current ()->status = THREAD_DYING;
+  list_remove (&t->allelem);
+  if(t->status!=THREAD_EXIT){t->status = THREAD_DYING;}
   schedule ();
   NOT_REACHED ();
 }
@@ -721,6 +721,13 @@ init_thread (struct thread *t, const char *name, int priority)
   /*20170765 priority donation*/ 
   list_init(&t->donations);
   list_init(&t->holding_locks);
+  /* pj2 userprog*/ 
+
+  list_init(&t->child);
+  lock_init(&t->exit);
+  cond_init(&t->return_to_p);
+  t->exit_status = -1;
+  t->p_tid = TID_NOPARENT;
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

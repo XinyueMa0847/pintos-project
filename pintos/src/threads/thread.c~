@@ -332,7 +332,6 @@ void thread_sleep(int64_t ticks)
   old_level = intr_disable();
   if(cur!=idle_thread)
     {
-      //list_push_back(&sleep_list, &cur->sleepelem);
       list_insert_ordered(&sleep_list,&cur->sleepelem,sleep_compare,NULL);
       cur->wake_up_at = ticks;
     }
@@ -600,7 +599,7 @@ void thread_update_stats(int64_t ticks)
   /*increment recent cpu of the running thread, there is no point to
     increment recent cpu of th idle thread*/
   if(thread_current()!=idle_thread){increment_recent_cpu();}
-  //recalculate priority of all threads every 4th tick
+  /*recalculate priority of all threads every 4th tick*/
   if(ticks%TIME_SLICE==0)
     {
       if(ticks%TIME_FREQ==0){load_avg=calculate_load_avg();}
@@ -609,7 +608,7 @@ void thread_update_stats(int64_t ticks)
       for (e=list_begin(&all_list);e!=list_end(&all_list);e=list_next(e))
 	{
 	  t = list_entry(e,struct thread, allelem);
-	  
+	  /*recent_cpu is updated every second*/
 	  if(ticks%TIME_FREQ==0)
 	    {
 	      thread_set_t_recent_cpu(t);
@@ -722,6 +721,11 @@ init_thread (struct thread *t, const char *name, int priority)
   /*20170765 priority donation*/ 
   list_init(&t->donations);
   list_init(&t->holding_locks);
+  /* pj2 userprog*/ 
+
+  list_init(t->child);
+  lock_init(t->exit);
+  t->exit_status = -1;
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

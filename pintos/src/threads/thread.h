@@ -4,13 +4,15 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 /* States in a thread's life cycle. */
 enum thread_status
   {
     THREAD_RUNNING,     /* Running thread. */
     THREAD_READY,       /* Not running but ready to run. */
     THREAD_BLOCKED,     /* Waiting for an event to trigger. */
-    THREAD_DYING        /* About to be destroyed. */
+    THREAD_DYING,       /* About to be destroyed. */
+    THREAD_EXIT		/* Wait to return its exit status to parent*/
   };
 
 /* Thread identifier type.
@@ -18,7 +20,7 @@ enum thread_status
 typedef int tid_t;
 typedef int f_p;
 #define TID_ERROR ((tid_t) -1)          /* Error value for tid_t. */
-
+#define TID_NOPARENT ((tid_t) -2) 
 /* Thread priorities. */
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
@@ -115,6 +117,12 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
 #endif
+    struct list child;
+    struct list_elem child_elem; 
+    struct lock exit; 
+    struct condition return_to_p;
+    int exit_status; 
+    tid_t p_tid;
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
