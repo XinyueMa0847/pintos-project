@@ -123,7 +123,9 @@ struct thread
     struct condition return_to_p;
     int exit_status; 
     tid_t p_tid;
-
+    int next_fd;
+    struct file* fdt[64];
+    struct file* executable;
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
@@ -134,6 +136,7 @@ struct thread
 extern bool thread_mlfqs;
 
 /*fixed_points functions, in fixed-points.h*/
+
 f_p n_to_f(int);
 int f_to_n_zero(f_p );
 int f_to_n_nearest(f_p);

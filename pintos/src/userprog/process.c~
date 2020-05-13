@@ -31,6 +31,7 @@ struct argument{
     list*/
   struct semaphore chd_created; 
   struct thread *child; 
+  int tid_error;
 };
 
 
@@ -53,12 +54,13 @@ process_execute (const char *file_name)
 
   /*pj2*/
   /*tokenize file_name, forward the first token to thread create()*/
+  struct thread* cur = thread_current();
   char *argv0,*argv_rest;
   int argv_size=5;
   char ** argv;
   argv = malloc(argv_size * sizeof(char*)); //start with default number of argument of 5
   int argc = 0; 
-
+  
   struct argument *args = palloc_get_page(0);
   args->p_tid = thread_current()->tid;
   sema_init(&args->chd_created, 0);
@@ -89,6 +91,15 @@ process_execute (const char *file_name)
       palloc_free_page(argv);
       palloc_free_page (fn_copy);
     }
+  else
+    {
+     
+      sema_down(&args->chd_created);
+      if(args->tid_error==1){tid=TID_ERROR;}
+      list_push_back(&cur->child, &args->child->child_elem);
+      
+      
+    }
   return tid;
 }
 
@@ -108,14 +119,25 @@ start_process (void *args_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+
+  /*signal the parent*/
+  args->child = thread_current();
+  thread_current()->p_tid = args->p_tid;
+
+  
   success = load (argv[0], &if_.eip, &if_.esp);
   /* If load failed, quit. */
   //palloc_free_page (argv);
-  if (!success) 
-    thread_exit ();
  
+  if (!success) 
+    {args->tid_error=1;
+      sema_up(&args->chd_created);
+      thread_exit ();}
+  sema_up(&args->chd_created);
   argument_stack(argc,argv,&if_.esp);
-  hex_dump((uintptr_t)if_.esp, if_.esp, PHYS_BASE - if_.esp, true);
+
+  //hex_dump((uintptr_t)if_.esp, if_.esp, PHYS_BASE - if_.esp, true);
+
 
 
   /* Start the user process by simulating a return from an
@@ -140,8 +162,35 @@ start_process (void *args_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  while(1){;}
+  //while(1){;}
+  struct list_elem *e;
+  struct thread* cur = thread_current();
+  struct thread* child = NULL; 
+  int exit_status;
+  for (e = list_begin(&cur->child); e!=list_end(&cur->child);e = list_next(e))
+    {
+      child = list_entry(e, struct thread, child_elem); 
+      if(child->tid == child_tid)
+	{
+	  //printf("found the child to wait!");
+	  list_remove(e);
+	  break; 
+	}
+    }
+  if(child==NULL){return -1;}
+  else
+    {
+      lock_acquire(&child->exit); 
+      if(child->status != THREAD_EXIT){
+	cond_wait(&child->return_to_p, &child->exit);
+      }
+      lock_release(&child->exit); /*release so the child can be scheduled away*/
+      exit_status = child->exit_status; 
+      palloc_free_page(child);	
+    }
+  return exit_status; 
 }
+
 
 /* Free the current process's resources. */
 void
@@ -149,7 +198,8 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-
+  int status;
+  lock_acquire(&cur->exit);
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -166,6 +216,40 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  /* orphan its children, if any */
+  struct list_elem *e,*removed;
+  struct thread* child;
+  if(list_size(&cur->child)>0)
+    { e = list_begin(&cur->child);}
+  while(list_size(&cur->child)>0)
+    {
+      removed = e;
+      child = list_entry(removed, struct thread, child_elem);
+      e = list_next(e);
+      list_remove(removed);
+      if(child!=NULL&&child->status!=THREAD_EXIT)
+  	{
+  	  child->p_tid = TID_NOPARENT;
+  	}
+      else
+  	{
+  	  palloc_free_page(child);
+  	}
+    }
+  /* check if it needs to return to parent*/
+  if(cur->p_tid!=TID_NOPARENT)
+    {
+      status = THREAD_EXIT;
+      cond_signal(&cur->return_to_p, &cur->exit);
+    }
+  else{
+    
+    status = THREAD_DYING;
+  }
+  printf("%s: exit(%d)\n",thread_current()->name, thread_current()->exit_status);
+  intr_disable();/*other wise parent might free the thread before schedule();*/
+  lock_release(&cur->exit);
+  cur->status = status;
 }
 
 /* Sets up the CPU for running user code in the current
@@ -531,16 +615,14 @@ argument_stack(int argc, char ** argv,void **esp)
   while(idx!=-1)
     {
       len = strlen(arg_str)+1;
-      printf("length: %d\n",len);
+
       len_total += len; 
 
-      printf("string: %s\n",arg_str);
       pos -= len; 
       arg_addr[idx] = pos;
       memcpy(pos, arg_str, len*sizeof(char));
 
       arg_str = argv[idx-1];
-      printf("pos: %s\n",(char*)pos);
       idx--; 
       
     }

@@ -7,6 +7,7 @@
 #include <string.h>
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
+#include "userprog/syscall.h"
 #include "userprog/tss.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
@@ -31,6 +32,7 @@ struct argument{
     list*/
   struct semaphore chd_created; 
   struct thread *child; 
+  int tid_error;
 };
 
 
@@ -94,7 +96,9 @@ process_execute (const char *file_name)
     {
      
       sema_down(&args->chd_created);
+      if(args->tid_error==1){tid=TID_ERROR;}
       list_push_back(&cur->child, &args->child->child_elem);
+      
       
     }
   return tid;
@@ -116,18 +120,26 @@ start_process (void *args_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (argv[0], &if_.eip, &if_.esp);
-  /* If load failed, quit. */
-  //palloc_free_page (argv);
-  if (!success) 
-    thread_exit ();
- 
-  argument_stack(argc,argv,&if_.esp);
-  //hex_dump((uintptr_t)if_.esp, if_.esp, PHYS_BASE - if_.esp, true);
 
+  /*signal the parent*/
   args->child = thread_current();
   thread_current()->p_tid = args->p_tid;
+
+  
+  success = load (argv[0], &if_.eip, &if_.esp);
+
+  /* If load failed, quit. */
+  if (!success) 
+    {args->tid_error=1;
+      sema_up(&args->chd_created);
+      thread_exit ();}
+  
   sema_up(&args->chd_created);
+  argument_stack(argc,argv,&if_.esp);
+
+  //hex_dump((uintptr_t)if_.esp, if_.esp, PHYS_BASE - if_.esp, true);
+
+
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -205,6 +217,40 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  /*close all files opened by the threads*/
+  file_lock_acquire();
+  int i;
+  for(i = 2; i<=cur->next_fd;i++)
+    {
+      if(cur->fdt[i]!=NULL)
+	{
+	  file_close(cur->fdt[i]);
+	}
+    }
+  if(cur->executable){file_allow_write(cur->executable);}
+  file_lock_release();
+
+  /* orphan its children, if any */
+  struct list_elem *e,*removed;
+  struct thread* child;
+  if(list_size(&cur->child)>0)
+    { e = list_begin(&cur->child);}
+  while(list_size(&cur->child)>0)
+    {
+      removed = e;
+      child = list_entry(removed, struct thread, child_elem);
+      e = list_next(e);
+      list_remove(removed);
+      if(child!=NULL&&child->status!=THREAD_EXIT)
+  	{
+  	  child->p_tid = TID_NOPARENT;
+  	}
+      else
+  	{
+  	  palloc_free_page(child);
+  	}
+    }
+  /* check if it needs to return to parent*/
   if(cur->p_tid!=TID_NOPARENT)
     {
       status = THREAD_EXIT;
@@ -214,6 +260,8 @@ process_exit (void)
     
     status = THREAD_DYING;
   }
+  cur->executable = NULL;
+  printf("%s: exit(%d)\n",thread_current()->name, thread_current()->exit_status);
   intr_disable();/*other wise parent might free the thread before schedule();*/
   lock_release(&cur->exit);
   cur->status = status;
@@ -325,13 +373,16 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  file_lock_acquire();
   file = filesys_open (file_name);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
-
+  thread_current()->executable = file;
+  file_deny_write(file);
+  
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -415,7 +466,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+
+  file_lock_release();
+  if(!success){ file_close (file);thread_current()->executable=NULL;}
   return success;
 }
 

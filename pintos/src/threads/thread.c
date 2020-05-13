@@ -49,6 +49,7 @@ static struct thread *initial_thread;
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
 
+
 /* Stack frame for kernel_thread(). */
 struct kernel_thread_frame 
   {
@@ -126,6 +127,7 @@ thread_init (void)
   /* [20170765] Initialize nice value and recent cpu*/
   initial_thread->nice = 0;
   initial_thread->recent_cpu=0;
+
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -218,7 +220,7 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
-
+  
   /*parent thread, where the new thread will inherit nice and recent_cpu from*/
   struct thread* parent = thread_current();
 
@@ -406,6 +408,7 @@ thread_exit (void)
   struct thread* t = thread_current();
 #ifdef USERPROG
   process_exit ();
+  
 #endif
 
   /* Remove thread from all threads list, set our status to dying,
@@ -721,13 +724,14 @@ init_thread (struct thread *t, const char *name, int priority)
   /*20170765 priority donation*/ 
   list_init(&t->donations);
   list_init(&t->holding_locks);
-  /* pj2 userprog*/ 
 
+  /* pj2 userprog*/ 
   list_init(&t->child);
   lock_init(&t->exit);
   cond_init(&t->return_to_p);
   t->exit_status = -1;
   t->p_tid = TID_NOPARENT;
+  t->next_fd = 2;
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
