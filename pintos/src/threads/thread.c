@@ -732,6 +732,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->exit_status = -1;
   t->p_tid = TID_NOPARENT;
   t->next_fd = 2;
+  /* pj3 */ 
+  list_init(&t->mapped_files);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

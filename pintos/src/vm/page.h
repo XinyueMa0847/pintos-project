@@ -1,0 +1,100 @@
+#ifndef VM_PAGE_H
+#define VM_PAGE_H
+
+#include <stdio.h>
+#include <hash.h>
+#include "filesys/directory.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
+#include "devices/block.h"
+#include "threads/palloc.h"
+
+enum vm_entry_type
+  {
+    VM_FILE,			/* a page of a general file */
+    VM_ANON,			/* a page of swap area */
+    VM_EXE,			/* a page of ELF executable file */
+  };
+
+struct vm_file
+{
+  struct file* file;		/* the pointer to the backing file*/
+  off_t offset; 		/* start offset of the page in the file */
+  //off_t size;			/* bytes the page contains */ 
+};
+
+typedef int mapid_t;
+/*virtual memory entry: information associated with each page.  Each
+page could be either 1) part of a file 2) executable file 3) in swap
+table(swaped out) 4)not initialized */
+struct vm_entry
+{
+  int VPN;			/* virtual page number */
+  void* vaddr;			/* virtual page address */
+  bool writable;		/* whether the page is writable */
+  enum vm_entry_type type;	/* type of a page */  
+  struct vm_file basefile; 	/* the file that contains the page */
+  int swap_sector;	/* the block index of the swap slot */
+  bool in_memory;		/* is it in memory? */ 
+  struct hash_elem hash_elem;	/* to insert in the hash table */  
+  struct thread* owner;		/* the thread that owns the page */
+  off_t read_bytes;
+  off_t zero_bytes;
+  bool last_stack_page;
+  struct list_elem list_elem;
+};
+typedef struct hash vm;
+
+/* manage vm_entry */
+struct vm_entry* vm_entry_create(void* vaddr,enum vm_entry_type type, bool writable,struct thread* owner);
+void vm_set_basefile(struct vm_entry* entry, struct file* file, off_t offset);
+void vm_set_swap(struct vm_entry* entry, block_sector_t swap_sector);
+void vm_entry_destroy(struct vm_entry* entry);
+
+
+
+unsigned vm_hash(const struct hash_elem *p_, void *aux UNUSED);
+bool vm_less(const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
+void free_vm_entry (struct hash_elem *e, void *aux UNUSED);
+vm* vm_init(void);
+
+
+struct vm_entry* find_vme(vm* vm, void* fault_addr);
+bool load_page_from_file(void* kpage, struct vm_entry* entry);
+
+/******************************************************************************/
+
+struct page
+{
+  void* paddr; 		/* physical address of the page */
+  struct vm_entry* entry;	/* vm_entry the pysical address is mapped to */
+  struct thread* owner; 	/* owner of the vm_entry */
+  struct list_elem lru_elem;	/* the field to be inserted to LRU list*/
+};
+
+void lru_init(void); 		/* initializa lru list */
+void lru_insert(struct list_elem* e);
+void lru_remove(struct list_elem* e);
+struct page* page_create(void* paddr,struct vm_entry* entry);
+void * palloc_vm_get_page(enum palloc_flags flags,struct vm_entry* entry);
+bool palloc_vm_free_page(void* page);
+struct page* choose_victim(void);
+void swap_init(void);
+bool swap_in_addr(void * addr);
+void swap_in(struct vm_entry* entry);
+bool swap_out(struct page* victim);
+struct vm_entry* expand_stack(void* esp, void* fault_addr);
+
+
+struct mmap_file
+{
+  struct list* entry_list; 
+  struct list_elem mmap_elem;
+  mapid_t mapid;
+  struct file* file;
+
+};
+int mmap(int fd, void* addr);
+
+bool munmap(mapid_t mapid);
+#endif

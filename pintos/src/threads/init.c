@@ -36,6 +36,10 @@
 #include "devices/ide.h"
 #include "filesys/filesys.h"
 #include "filesys/fsutil.h"
+
+#include "vm/page.h"
+
+
 #endif
 
 /* Page directory with kernel mappings only. */
@@ -126,6 +130,11 @@ main (void)
   locate_block_devices ();
   filesys_init (format_filesys);
 #endif
+
+
+  /* Initialize virtual memory */
+  swap_init();
+  lru_init();
 
   printf ("Boot complete.\n");
   

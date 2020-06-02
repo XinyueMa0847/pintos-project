@@ -108,6 +108,7 @@ main (int argc, char *argv[])
   int n;
 
   n = argc > 1 ? atoi (argv[1]) : 0;
+  printf("starting one with depth %d \n",n);
   bool is_at_root = (n == 0);
   if (is_at_root)
     msg ("begin");
@@ -124,6 +125,7 @@ main (int argc, char *argv[])
 
   for (i = 0; i < howmany; i++)
     {
+      printf("depth%d's %dth fork",n,i+1);
       pid_t child_pid;
 
       /* Spawn a child that will be abnormally terminated.

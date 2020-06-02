@@ -13,7 +13,9 @@
 #include "userprog/pagedir.h"
 static void syscall_handler (struct intr_frame *);
 static struct lock file_lock;
-
+static int cnt=0;
+static int t_id=0;
+#define THREAD_MAGIC 0xcd6abf4b
 /* Read a byte at user virtual address UADDR, which must be below PHYS_BASE.
   Returns the byte value if successful, -1 if a segfault occured */
 static int
@@ -37,6 +39,11 @@ file_lock_release()
   lock_release(&file_lock);
 }
 
+bool
+holding_file_lock()
+{
+  return(lock_held_by_current_thread(&file_lock)); 
+}
 
 /*read ARGCth argument from the stack, it could be an int or another
     pointer*/
@@ -45,15 +52,24 @@ read_arg(void* esp, int* arg)
 {
   if(!is_user_vaddr(esp))
     {
-      //printf("invalid pointer passed to system call\n");
-      thread_current()->exit_status = -1;
-      thread_exit();
+      /* printf("invalid pointer passed to system call\n"); */
+      /* thread_current()->exit_status = -1; */
+      /* thread_exit(); */
+      printf("read_arg_exit: bk1\n");
+      return -1;
     }
   if(pagedir_get_page(thread_current()->pagedir, esp)==NULL)
     {
-      thread_current()->exit_status = -1;
-      thread_exit();
-    }
+      /* thread_current()->exit_status = -1; */
+      /* thread_exit(); */
+      printf("num of pages: %d\n", hash_size(thread_current()->vm));
+      printf("esp_boundary: %x esp: %x\n)",thread_current()->esp_boundary,esp);
+      if (expand_stack(esp,esp)==NULL);
+      {
+	printf("read_arg_exit: bk2\n");
+	return -1;
+      }
+      }
 
   /*call get_user 4 times to read four consecutive bytes*/
   int b0, b1,b2,b3;
@@ -86,7 +102,6 @@ sys_exit(void* esp)
     }
   else{thread_current()->exit_status = exit_status;}
   thread_exit();
-  NOT_REACHED();
   return exit_status;
 }
 
@@ -135,15 +150,25 @@ sys_create(void* esp)
       thread_current()->exit_status=-1;
       thread_exit();
     }
-  lock_acquire(&file_lock);
+  //lock_acquire(&file_lock);
   bool ret = filesys_create( (char*)file, size);
-  lock_release(&file_lock);
+  //lock_release(&file_lock);
   return ret;
 }
 
 static int
 sys_open(void* esp)
 {
+  /* detects stack over flow */
+  int insert = sizeof(struct file*);
+  int test;
+  if (read_arg((esp-insert),&test)==-1){
+    printf("read %dth file failed", thread_current()->next_fd);
+    return -1;}
+  if (thread_current()->magic != THREAD_MAGIC){
+    printf("Stack Overflow\n");
+    shutdown_power_off();
+  }
   int file,check;
 
   if(read_arg((esp+sizeof(int)),&file)==-1)
@@ -153,28 +178,36 @@ sys_open(void* esp)
     }
   if(read_arg((void*)file,&check)==-1||(void*)file==NULL)
     {
+      /* printf("thread's next fd is %d\n",thread_current()->next_fd); */
       thread_current()->exit_status=-1;
       thread_exit();
     }
+ 
   if(strlen((char*)file)<1)
     {
       return -1;
     }
-  lock_acquire(&file_lock);
-  struct file* ret = filesys_open( (char*)file);
-  if(ret) {
-    thread_current()->fdt[thread_current()->next_fd++]=ret;
-    if( strcmp((char*)file,(char*)thread_current()->name) == 0)
-      {
-	file_deny_write(ret);
-      }
-    lock_release(&file_lock);
-    return thread_current()->next_fd-1;
-  }
+  /* check if fdt still has enough sapce*/
+ 
+  if(thread_current()->next_fd > 60){return -1;}
   else{
-    lock_release(&file_lock);
-    return -1;
+    lock_acquire(&file_lock);
+    struct file* ret = filesys_open( (char*)file);
+    if(ret) {
+      thread_current()->fdt[thread_current()->next_fd++]=ret;
+      if( strcmp((char*)file,(char*)thread_current()->name) == 0)
+	{
+	  file_deny_write(ret);
+	}
+      lock_release(&file_lock);
+      return thread_current()->next_fd-1;
+    }
+    else{
+      lock_release(&file_lock);
+      return -1;
+    }
   }
+
 }
 
 static bool
@@ -348,10 +381,10 @@ sys_write(void* esp)
   return bytes;
 }
 
-static int
+int
 sys_read(void* esp)
 {
-
+  
   /* read arguments*/
   int fd,size,buf_ptr,check;
   int bytes = 0;
@@ -359,11 +392,13 @@ sys_read(void* esp)
      read_arg((esp+sizeof(int)*2),&buf_ptr)==-1 ||
      read_arg((esp+sizeof(int)*3),&size)==-1)
     {
+      printf("exit: bk1\n");
       thread_current()->exit_status=-1;
       thread_exit();
     }
   if(read_arg((void*)buf_ptr,&check)==-1||size<0||fd<0)
     {      
+      printf("exit: bk2\n");
       thread_current()->exit_status=-1;
       thread_exit();
     }
@@ -380,6 +415,7 @@ sys_read(void* esp)
   }
   else if(fd==1)
     {
+      printf("exit: bk3\n");
       thread_current()->exit_status=-1;
       thread_exit();
     }
@@ -387,11 +423,13 @@ sys_read(void* esp)
     {
       if(fd >= thread_current()->next_fd)
 	{
+	  printf("exit: bk4\n");
 	  thread_current()->exit_status=-1;
 	  thread_exit();
 	}
       struct file* file = thread_current()->fdt[fd];
       if(file==NULL){
+	printf("exit: bk5\n");
 	thread_current()->exit_status=-1;
 	thread_exit();
       }      
@@ -475,7 +513,14 @@ syscall_handler (struct intr_frame *f UNUSED)
   	      f->eax = sys_remove(f->esp);
   	      break;
   	    case SYS_OPEN:                   /* Open a file. */
+	      if (t_id==thread_current()->tid){cnt++;}
+	      else{
+		t_id =thread_current()->tid;
+		cnt=0;
+	      }
+	      /* printf("thread %d opening %dth file \n", thread_current()->tid, cnt); */
   	      f->eax = sys_open(f->esp);
+	      /* printf("open returned normally \n"); */
 	      break;
   	    case SYS_FILESIZE:               /* Obtain a file's size. */
   	       f->eax = sys_filesize(f->esp);

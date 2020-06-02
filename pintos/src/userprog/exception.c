@@ -4,7 +4,9 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-
+#include "vm/page.h"
+#include "userprog/process.h"
+#include "syscall.h"
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -108,6 +110,17 @@ kill (struct intr_frame *f)
     }
 }
 
+static void
+page_fault_fail(struct intr_frame *f)
+{
+  if(holding_file_lock())
+    file_lock_release();
+  thread_current()->exit_status=-1;
+  thread_exit();
+  kill(f);  
+}
+
+
 /* Page fault handler.  This is a skeleton that must be filled in
    to implement virtual memory.  Some solutions to project 2 may
    also require modifying this code.
@@ -147,17 +160,37 @@ page_fault (struct intr_frame *f)
   not_present = (f->error_code & PF_P) == 0;
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
-  
-  thread_current()->exit_status=-1;
-  thread_exit();
+
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+  /* printf ("Page fault at %p: %s error %s page in %s context.\n", */
+  /*         fault_addr, */
+  /*         not_present ? "not present" : "rights violation", */
+  /*         write ? "writing" : "reading", */
+  /*         user ? "user" : "kernel"); */
+
+  /* if the cause is a not present user page, try to bring it in */ 
+  if(user&&not_present)
+    {
+      /* find the vm_entry */
+      struct vm_entry* entry = find_vme(thread_current()->vm,fault_addr);
+      thread_current()->esp = f->esp;
+      bool success = handle_mm_fault(entry,fault_addr,f->esp);
+      if(!success)
+	{
+	  page_fault_fail(f);
+	}
+    }
+  else 
+    { 
+      /* printf ("Page fault at %p: %s error %s page in %s context.\n", */
+      /* 	      fault_addr, */
+      /* 	      not_present ? "not present" : "rights violation", */
+      /* 	      write ? "writing" : "reading", */
+      /*     user ? "user" : "kernel"); */
+      page_fault_fail(f);
+    }
+  
 }
 

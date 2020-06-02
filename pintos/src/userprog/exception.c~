@@ -4,7 +4,7 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-
+#include "vm/page.h"
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -156,6 +156,34 @@ page_fault (struct intr_frame *f)
           not_present ? "not present" : "rights violation",
           write ? "writing" : "reading",
           user ? "user" : "kernel");
-  kill (f);
+
+  /* if the cause is a not present user page, try to bring it in */ 
+  if(user&&not_present)
+    {
+      /* find the vm_entry */
+      struct vm_entry* entry = find_vme(thread_current()->vm,fault_addr);
+      if(entry!=NULL)
+	{
+	  bool success = handle_mm_fault(entry);
+	  if(!success)
+	    { 
+	      thread_current()->exit_status=-1;
+	      thread_exit();
+	      kill(f);
+	    }
+	}
+      else{
+	thread_current()->exit_status=-1;
+	thread_exit();
+	kill(f);		
+      }
+    }
+  else 
+    { 
+      thread_current()->exit_status=-1;
+      thread_exit();
+      kill(f);
+    }
+  
 }
 

@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/synch.h"
+#include "vm/page.h"
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -116,6 +117,10 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    vm *vm; 				/* virtual memory entries */
+    void* esp;
+    void* esp_boundary;
+    struct list mapped_files;
 #endif
     struct list child;
     struct list_elem child_elem; 
@@ -128,7 +133,9 @@ struct thread
     struct file* executable;
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
-  };
+    
+};
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

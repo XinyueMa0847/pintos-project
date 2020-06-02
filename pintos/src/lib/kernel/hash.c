@@ -79,7 +79,7 @@ hash_clear (struct hash *h, hash_action_func *destructor)
    element in the hash.  DESTRUCTOR may, if appropriate,
    deallocate the memory used by the hash element.  However,
    modifying hash table H while hash_clear() is running, using
-   any of the functions hash_clear(), hash_destroy(),
+   any of the functions ha#sh_clear(), hash_destroy(),
    hash_insert(), hash_replace(), or hash_delete(), yields
    undefined behavior, whether done in DESTRUCTOR or
    elsewhere. */
